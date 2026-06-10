@@ -1,6 +1,9 @@
 import hashlib
 import time
+import logging
 from typing import List, Dict
+
+logger = logging.getLogger(__name__)
 
 
 class Bloque:
@@ -37,6 +40,7 @@ class BlockchainSim:
         return self.cadena[-1]
 
     def agregar_voto(self, datos_voto, es_falso=False):
+        logger.info(f"Agregando voto {'falso' if es_falso else 'real'}: {datos_voto}")
         nuevo_bloque = Bloque(
             len(self.cadena),
             time.time(),
@@ -48,17 +52,21 @@ class BlockchainSim:
         self.cadena.append(nuevo_bloque)
         if not es_falso:
             self.votos_reales.append(nuevo_bloque)
+            logger.info(f"Total votos reales ahora: {len(self.votos_reales)}")
         else:
             self.votos_falsos.append(nuevo_bloque)
         return nuevo_bloque
 
     def obtener_resultados_reales(self):
+        logger.info(f"Calculando resultados de {len(self.votos_reales)} votos reales")
         resultados = {}
         for bloque in self.votos_reales:
+            logger.info(f"Procesando voto real: {bloque.datos}")
             cargo = bloque.datos["cargo"]
             candidato = bloque.datos["candidato"]
             peso = bloque.datos["peso"]
             if cargo not in resultados:
                 resultados[cargo] = {}
             resultados[cargo][candidato] = resultados[cargo].get(candidato, 0) + peso
+        logger.info(f"Resultados calculados: {resultados}")
         return resultados

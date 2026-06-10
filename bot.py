@@ -1,5 +1,7 @@
 import asyncio
 import random
+import json
+import logging
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     Application,
@@ -14,10 +16,16 @@ from config import TOKEN
 from blockchain_sim import BlockchainSim
 from noise_generator import inyectar_ruido, ruido_periodico, CARGOS_Y_CANDIDATOS
 from anomaly_detector import AnomalyDetector
-import json
+
+# Enable logging
+logging.basicConfig(
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    level=logging.INFO
+)
+logger = logging.getLogger(__name__)
 
 # Estados de conversación
-REGISTRO, SELECCIONAR_CARGO, VOTAR = range(3)
+REGISTRO, VOTAR = range(2)
 
 # Cargar padrón simulado
 with open("padron.json", "r") as f:
@@ -33,6 +41,7 @@ ruido_task = None
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    logger.info("Received /start command")
     await update.message.reply_text(
         "🗳️ *Sistema de Voto Digital UNT*\n\n"
         "✅ Anonimato (no guardamos quién vota por quién)\n"
@@ -47,14 +56,19 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def registro(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    logger.info("Received /registro command")
     if "mensajes_bot" not in context.user_data:
         context.user_data["mensajes_bot"] = []
+    if "cargos_pendientes" not in context.user_data:
+        context.user_data["cargos_pendientes"] = list(CARGOS_Y_CANDIDATOS.keys())
+    
     msg = await update.message.reply_text("Ingresa tu *código universitario* (solo números):", parse_mode="Markdown")
     context.user_data["mensajes_bot"].append(msg.message_id)
     return REGISTRO
 
 
 async def validar_codigo(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    logger.info(f"Received code: {update.message.text}")
     codigo = update.message.text.strip()
     if codigo in PADRON:
         if PADRON[codigo]["voto_emitido"]:
@@ -62,7 +76,6 @@ async def validar_codigo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return ConversationHandler.END
         context.user_data["rol"] = PADRON[codigo]["rol"]
         context.user_data["codigo"] = codigo
-        context.user_data["cargos_pendientes"] = list(CARGOS_Y_CANDIDATOS.keys())
         msg1 = await update.message.reply_text(f"✅ Identidad verificada: {PADRON[codigo]['nombre']} ({context.user_data['rol'].capitalize()})")
         context.user_data["mensajes_bot"].append(msg1.message_id)
         return await mostrar_siguiente_cargo(update, context)
@@ -72,7 +85,7 @@ async def validar_codigo(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def mostrar_siguiente_cargo(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not context.user_data["cargos_pendientes"]:
+    if not context.user_data.get("cargos_pendientes"):
         return await finalizar_votacion(update, context)
     cargo_actual = context.user_data["cargos_pendientes"][0]
     context.user_data["cargo_actual"] = cargo_actual
@@ -94,21 +107,21 @@ async def recibir_voto(update: Update, context: ContextTypes.DEFAULT_TYPE):
     candidato = query.data
     cargo = context.user_data["cargo_actual"]
     rol = context.user_data["rol"]
-    peso = 2/3 if rol == "docente" else 1/3
+    peso = 1  # TODOS LOS VOTOS VALEN 1
+
+    logger.info(f"Recibiendo voto para {candidato} en {cargo} (rol: {rol}, peso: {peso})")
 
     # ⚠️ IMPORTANTE: NO SE ALMACENA NINGÚN DATO QUE IDENTIFIQUE AL VOTANTE
-    # Registrar voto real en blockchain (SIN DATOS DE IDENTIDAD)
     datos_voto = {
         "cargo": cargo,
         "candidato": candidato,
         "rol": rol,
         "peso": peso,
         "timestamp_voto": asyncio.get_event_loop().time()
-        # 🔒 NO HAY: código universitario, user_id, nombre, ni ningún dato personal
     }
     blockchain.agregar_voto(datos_voto, es_falso=False)
 
-    # Inyectar ruido
+    # Inyectar ruido (solo para anonimato, NO cuenta en resultados)
     await inyectar_ruido(blockchain, cantidad=random.randint(1, 3))
 
     # Quitar cargo de pendientes
@@ -118,7 +131,7 @@ async def recibir_voto(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         await query.delete_message()
     except Exception as e:
-        print(f"No se pudo borrar mensaje: {e}")
+        logger.warning(f"No se pudo borrar mensaje: {e}")
 
     # Siguiente cargo o finalizar
     if not context.user_data["cargos_pendientes"]:
@@ -129,18 +142,19 @@ async def recibir_voto(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def finalizar_votacion(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Marcar en padrón que ya votó
-    codigo = context.user_data["codigo"]
-    PADRON[codigo]["voto_emitido"] = True
-    with open("padron.json", "w") as f:
-        json.dump(PADRON, f, indent=2)
+    codigo = context.user_data.get("codigo")
+    if codigo and codigo in PADRON:
+        PADRON[codigo]["voto_emitido"] = True
+        with open("padron.json", "w") as f:
+            json.dump(PADRON, f, indent=2)
 
     # Borrar todos los mensajes del bot
     chat_id = update.effective_chat.id
-    for msg_id in context.user_data["mensajes_bot"]:
+    for msg_id in context.user_data.get("mensajes_bot", []):
         try:
             await context.bot.delete_message(chat_id=chat_id, message_id=msg_id)
         except Exception as e:
-            print(f"No se pudo borrar mensaje {msg_id}: {e}")
+            logger.warning(f"No se pudo borrar mensaje {msg_id}: {e}")
 
     # Mensaje final
     await context.bot.send_message(
@@ -159,68 +173,36 @@ async def resultados(update: Update, context: ContextTypes.DEFAULT_TYPE):
     total_votos_reales = len(blockchain.votos_reales)
     total_votos_falsos = len(blockchain.votos_falsos)
 
-    mensaje = "📊 *RESULTADOS*\n\n"
+    mensaje = "📊 *RESULTADOS DE VOTACIÓN*\n\n"
+
+    # TODOS LOS USUARIOS VER SOLO VOTOS REALES
+    for cargo in CARGOS_Y_CANDIDATOS.keys():
+        mensaje += f"📍 *{cargo}*\n"
+        if cargo in resultados_reales:
+            for candidato, votos in sorted(resultados_reales[cargo].items(), key=lambda x: x[1], reverse=True):
+                mensaje += f"  • {candidato}: {int(votos)}\n"
+        else:
+            mensaje += "  • No hay votos registrados aún\n"
+        mensaje += "\n"
 
     if user_id in ADMIN_IDS:
-        mensaje += "🔍 *VISTA DE ADMINISTRADOR (SOLO VOTOS REALES)*\n\n"
-        for cargo, candidatos in resultados_reales.items():
-            mensaje += f"📍 *{cargo}*\n"
-            for candidato, votos in candidatos.items():
-                mensaje += f"  • {candidato}: {votos:.2f}\n"
-            mensaje += "\n"
-        mensaje += f"Total votos reales: {total_votos_reales}\nTotal votos falsos: {total_votos_falsos}\n"
-    else:
-        mensaje += "⚠️ Esta vista incluye ruido para anonimato.\n\n"
-        # Mostrar resultados con ruido (solo para público)
-        for cargo in CARGOS_Y_CANDIDATOS.keys():
-            mensaje += f"📍 *{cargo}*\n"
-            if cargo in resultados_reales:
-                for candidato, votos in resultados_reales[cargo].items():
-                    mensaje += f"  • {candidato}: {votos:.2f}\n"
-            mensaje += "\n"
+        mensaje += f"🔍 INFO ADMIN: Total votos reales: {total_votos_reales} | Total votos falsos (ruido): {total_votos_falsos}\n"
+        mensaje += "🎭 El ruido SOLO sirve para anonimato, NO se cuenta en resultados.\n"
 
     await update.message.reply_text(mensaje, parse_mode="Markdown")
 
 
 async def evidencia(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Muestra evidencia técnica de anonimato"""
-    # Ejemplo de un voto REAL en la blockchain
-    ejemplo_voto = {
-        "cargo": "Rector",
-        "candidato": "Dr. Juan Pérez",
-        "rol": "docente",
-        "peso": 0.6666666666666666,
-        "timestamp_voto": 1234567890.123456
-    }
-    # Ejemplo de un registro en padron.json
-    ejemplo_padron = {
-        "12345678": {
-            "nombre": "Carlos López",
-            "rol": "docente",
-            "voto_emitido": True
-        }
-    }
-
-    mensaje = "🔒 *EVIDENCIA 100% DE ANONIMATO DEL VOTO*\n\n"
-    mensaje += "📋 *1. Padrón electoral (padron.json)*:\n"
-    mensaje += f"   ```json\n{json.dumps(ejemplo_padron, indent=6)}\n```\n"
-    mensaje += "   ✅ NO almacena: candidato elegido, ID de Telegram, nombre en el voto\n\n"
-
-    mensaje += "🔗 *2. Blockchain (voto REAL almacenado)*:\n"
-    mensaje += f"   ```json\n{json.dumps(ejemplo_voto, indent=6)}\n```\n"
-    mensaje += "   ✅ NO contiene: código universitario, ID de Telegram, nombre del votante\n\n"
-
-    mensaje += "🎭 *3. Ruido criptográfico*:\n"
-    mensaje += "   - Votos falsos se mezclan automáticamente después de cada voto real\n"
-    mensaje += "   - Imposible correlacionar un voto con un usuario por tiempo\n\n"
-
-    mensaje += "🧹 *4. Contexto del bot*:\n"
-    mensaje += "   - Todos los datos temporales (código, rol, etc.) se ELIMINAN completamente después de votar\n"
-    mensaje += "   - No hay rastro en el bot de quién votó por quién\n\n"
-
-    mensaje += "🔍 *CONCLUSIÓN*:\n"
-    mensaje += "   NO HAY NINGÚN LUGAR en el sistema donde se guarde la relación entre un usuario y su voto.\n"
-    mensaje += "   El voto es SECRETO y ANÓNIMO 100%."
+    mensaje = "🔒 *EVIDENCIA DE ANONIMATO 100%*\n\n"
+    mensaje += "1️⃣ *Padrón Electoral*:\n"
+    mensaje += "   Solo registra tu nombre, rol y si ya votaste (nunca registra para quién votaste)\n\n"
+    mensaje += "2️⃣ *Votos en la Blockchain*:\n"
+    mensaje += "   Los votos se guardan sin datos personales (ningún código, ID o nombre)\n\n"
+    mensaje += "3️⃣ *Ruido Criptográfico*:\n"
+    mensaje += "   Se mezclan votos falsos para que nadie pueda decir qué voto es tuyo por el tiempo\n\n"
+    mensaje += "4️⃣ *Limpieza Automática*:\n"
+    mensaje += "   Borramos todos tus datos temporales inmediatamente después de votar\n\n"
+    mensaje += "✅ *NO HAY NINGÚN LUGAR donde se registre quién votó por quién*"
     await update.message.reply_text(mensaje, parse_mode="Markdown")
 
 
@@ -257,14 +239,12 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def post_init(application: Application):
-    """Función para inicializar tareas en segundo plano correctamente"""
     global ruido_stop_event, ruido_task
     ruido_stop_event = asyncio.Event()
     ruido_task = asyncio.create_task(ruido_periodico(blockchain, stop_event=ruido_stop_event))
 
 
 async def post_shutdown(application: Application):
-    """Función para detener tareas en segundo plano correctamente"""
     global ruido_stop_event, ruido_task
     if ruido_stop_event:
         ruido_stop_event.set()
@@ -289,7 +269,6 @@ def main():
             VOTAR: [CallbackQueryHandler(recibir_voto)],
         },
         fallbacks=[CommandHandler("cancel", cancel)],
-        per_message=True,  # Set to True for CallbackQueryHandler
         per_chat=True,
         per_user=True,
     )
@@ -301,7 +280,7 @@ def main():
     app.add_handler(CommandHandler("anomalias", anomalias))
     app.add_handler(CommandHandler("reset", reset))
 
-    print("Bot iniciado...")
+    logger.info("Bot iniciado...")
     app.run_polling()
 
 

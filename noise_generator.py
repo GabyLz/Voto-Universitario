@@ -12,12 +12,12 @@ CARGOS_Y_CANDIDATOS = {
 
 
 async def inyectar_ruido(blockchain: BlockchainSim, cantidad=1):
-    """Inyecta votos falsos aleatorios por cargo"""
+    """Inyecta votos falsos aleatorios por cargo (solo para anonimato)"""
     for _ in range(cantidad):
         cargo_falso = random.choice(list(CARGOS_Y_CANDIDATOS.keys()))
         candidato_falso = random.choice(CARGOS_Y_CANDIDATOS[cargo_falso])
         rol_falso = random.choice(["docente", "estudiante"])
-        peso_falso = 2/3 if rol_falso == "docente" else 1/3
+        peso_falso = 1  # También peso 1, pero NO cuenta en resultados
         blockchain.agregar_voto({
             "cargo": cargo_falso,
             "candidato": candidato_falso,
