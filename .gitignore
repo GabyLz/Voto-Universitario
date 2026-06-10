@@ -1,0 +1,12 @@
+# Archivos de Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Configuración sensible (NO SUBIR TU TOKEN!)
+config.py
+
+# Entornos virtuales
+venv/
+env/
