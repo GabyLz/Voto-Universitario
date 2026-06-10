@@ -10,8 +10,8 @@ class Bloque:
         self.datos = datos  # {'candidato': 'X', 'rol': 'docente', 'peso': 0.666}
         self.hash_anterior = hash_anterior
         self.es_falso = es_falso
-        self.hash = self.calcular_hash()
         self.nonce = 0  # para minado simulado
+        self.hash = self.calcular_hash()
 
     def calcular_hash(self):
         contenido = f"{self.index}{self.timestamp}{self.datos}{self.hash_anterior}{self.es_falso}{self.nonce}"
