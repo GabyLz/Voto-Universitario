@@ -1,0 +1,5 @@
+{
+  "12345678": {"nombre": "Carlos López", "rol": "docente", "voto_emitido": false},
+  "87654321": {"nombre": "Ana Torres", "rol": "estudiante", "voto_emitido": false},
+  "11111111": {"nombre": "Admin CEUA", "rol": "admin", "voto_emitido": false}
+}
