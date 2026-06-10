@@ -4,7 +4,7 @@ __pycache__/
 *.pyo
 *.pyd
 
-# Configuración sensible (NO SUBIR TU TOKEN!)
+# Configuración sensible
 config.py
 
 # Entornos virtuales
