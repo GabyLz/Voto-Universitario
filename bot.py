@@ -77,7 +77,13 @@ async def mostrar_siguiente_cargo(update: Update, context: ContextTypes.DEFAULT_
     cargo_actual = context.user_data["cargos_pendientes"][0]
     context.user_data["cargo_actual"] = cargo_actual
     teclado = [[InlineKeyboardButton(c, callback_data=c)] for c in CARGOS_Y_CANDIDATOS[cargo_actual]]
-    msg = await update.message.reply_text(f"📍 Cargo: *{cargo_actual}*\nSelecciona tu candidato:", reply_markup=InlineKeyboardMarkup(teclado), parse_mode="Markdown")
+    chat_id = update.effective_chat.id
+    msg = await context.bot.send_message(
+        chat_id=chat_id,
+        text=f"📍 Cargo: *{cargo_actual}*\nSelecciona tu candidato:",
+        reply_markup=InlineKeyboardMarkup(teclado),
+        parse_mode="Markdown"
+    )
     context.user_data["mensajes_bot"].append(msg.message_id)
     return VOTAR
 
@@ -283,7 +289,7 @@ def main():
             VOTAR: [CallbackQueryHandler(recibir_voto)],
         },
         fallbacks=[CommandHandler("cancel", cancel)],
-        per_message=False,  # Explicitly set to avoid warning
+        per_message=True,  # Set to True for CallbackQueryHandler
         per_chat=True,
         per_user=True,
     )
