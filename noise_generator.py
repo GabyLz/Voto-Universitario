@@ -28,15 +28,3 @@ async def inyectar_ruido(blockchain: BlockchainSim, cantidad=1):
         await asyncio.sleep(0.1)
 
 
-async def ruido_periodico(blockchain: BlockchainSim, intervalo_segundos=30, stop_event=None):
-    """Cada cierto tiempo inyecta ruido aleatorio (1-3 votos falsos) - con evento de parada"""
-    while not (stop_event and stop_event.is_set()):
-        try:
-            await asyncio.sleep(intervalo_segundos)
-            if stop_event and stop_event.is_set():
-                break
-            cantidad = random.randint(1, 3)
-            await inyectar_ruido(blockchain, cantidad)
-            print(f"[Ruido] Inyectados {cantidad} votos falsos")
-        except asyncio.CancelledError:
-            break

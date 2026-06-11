@@ -14,7 +14,7 @@ from telegram.ext import (
 )
 from config import TOKEN
 from blockchain_sim import BlockchainSim
-from noise_generator import inyectar_ruido, ruido_periodico, CARGOS_Y_CANDIDATOS
+from noise_generator import inyectar_ruido, CARGOS_Y_CANDIDATOS
 from anomaly_detector import AnomalyDetector
 
 # Enable logging
@@ -36,8 +36,7 @@ ADMIN_IDS = [11111111]  # Telegram IDs de administradores
 # Inicializar blockchain y detector
 blockchain = BlockchainSim()
 detector = AnomalyDetector(blockchain)
-ruido_stop_event = None
-ruido_task = None
+
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -121,8 +120,8 @@ async def recibir_voto(update: Update, context: ContextTypes.DEFAULT_TYPE):
     }
     blockchain.agregar_voto(datos_voto, es_falso=False)
 
-    # Inyectar ruido (solo para anonimato, NO cuenta en resultados)
-    await inyectar_ruido(blockchain, cantidad=random.randint(1, 3))
+    # Inyectar ruido (solo para anonimato, proporción 2:1)
+    await inyectar_ruido(blockchain, cantidad=2)
 
     # Quitar cargo de pendientes
     context.user_data["cargos_pendientes"].pop(0)
@@ -238,29 +237,8 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return ConversationHandler.END
 
 
-async def post_init(application: Application):
-    global ruido_stop_event, ruido_task
-    ruido_stop_event = asyncio.Event()
-    ruido_task = asyncio.create_task(ruido_periodico(blockchain, stop_event=ruido_stop_event))
-
-
-async def post_shutdown(application: Application):
-    global ruido_stop_event, ruido_task
-    if ruido_stop_event:
-        ruido_stop_event.set()
-    if ruido_task and not ruido_task.done():
-        try:
-            await asyncio.wait_for(ruido_task, timeout=5.0)
-        except asyncio.TimeoutError:
-            ruido_task.cancel()
-            try:
-                await ruido_task
-            except asyncio.CancelledError:
-                pass
-
-
 def main():
-    app = Application.builder().token(TOKEN).post_init(post_init).post_shutdown(post_shutdown).build()
+    app = Application.builder().token(TOKEN).build()
 
     conv_handler = ConversationHandler(
         entry_points=[CommandHandler("registro", registro)],
