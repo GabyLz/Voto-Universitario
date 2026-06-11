@@ -1,6 +1,6 @@
 import random
 import asyncio
-from blockchain_sim import BlockchainSim
+from blockchain_sim import BlockchainSim, BlockchainZKSim
 
 # Definir cargos y sus candidatos
 CARGOS_Y_CANDIDATOS = {
@@ -25,6 +25,34 @@ async def inyectar_ruido(blockchain: BlockchainSim, cantidad=1):
             "peso": peso_falso,
             "timestamp_voto": asyncio.get_event_loop().time()
         }, es_falso=True)
+        await asyncio.sleep(0.1)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# VERSIÓN ZK
+# Genera votos falsos indistinguibles de los reales en la cadena.
+# Encripta voto=0 (nulo) con ElGamal + prueba ZK de rango.
+# ═══════════════════════════════════════════════════════════════════════════════
+
+async def inyectar_ruido_zk(blockchain: BlockchainZKSim, pk, cantidad=1):
+    """
+    Inyecta votos falsos con ZK proofs.
+
+    Los votos falsos encriptan el valor 0.
+    La prueba ZK demuestra que el valor está en {0..N} sin revelar cuál.
+    Cualquier observador ve bloques idénticos a los reales.
+    """
+    from zk_proofs import encriptar, crear_prueba_zk
+
+    for _ in range(cantidad):
+        cargo_falso = random.choice(list(CARGOS_Y_CANDIDATOS.keys()))
+        n_candidatos = len(CARGOS_Y_CANDIDATOS[cargo_falso])
+        voto = 0  # falso = nulo
+
+        a, b, r = encriptar(voto, pk)
+        prueba = crear_prueba_zk(a, b, voto, r, pk, n_candidatos)
+        blockchain.agregar_voto(cargo_falso, a, b, prueba)
+
         await asyncio.sleep(0.1)
 
 

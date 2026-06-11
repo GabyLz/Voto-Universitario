@@ -2,12 +2,12 @@
   "12345678": {
     "nombre": "Carlos L\u00f3pez",
     "rol": "docente",
-    "voto_emitido": false
+    "voto_emitido": true
   },
   "87654321": {
     "nombre": "Ana Torres",
     "rol": "estudiante",
-    "voto_emitido": false
+    "voto_emitido": true
   },
   "11111111": {
     "nombre": "Admin CEUA",

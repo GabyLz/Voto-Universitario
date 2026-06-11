@@ -34,3 +34,56 @@ class AnomalyDetector:
             anomalias.append("Concentración anómala de votos en un solo candidato.")
 
         return anomalias if anomalias else ["Sin anomalías detectadas."]
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# VERSIÓN ZK — Compatible con BlockchainZKSim + TallyAuthority
+# Los votos están cifrados. El detector usa:
+#   - timestamps públicos de todos los bloques
+#   - info agregada de la autoridad (totales, ratio)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class AnomalyDetectorZK:
+    def __init__(self, blockchain_zk, tally_authority):
+        self.blockchain = blockchain_zk
+        self.tally = tally_authority
+
+    def detectar(self):
+        # Timestamps de todos los bloques de voto (excluyendo génesis)
+        tiempos = [b.timestamp for b in self.blockchain.cadena[1:]]
+        if len(tiempos) < 5:
+            return "No hay suficientes bloques para análisis."
+
+        tiempos.sort()
+        diferencias = np.diff(tiempos)
+        votos_por_minuto = 60 / np.mean(diferencias) if len(diferencias) > 0 else 0
+
+        anomalias = []
+
+        if votos_por_minuto > 10:
+            anomalias.append(
+                f"Alta velocidad de votación: {votos_por_minuto:.1f} bloques/min "
+                f"(incluye ruido ZK)"
+            )
+
+        # Info agregada desde la autoridad (no revela votos individuales)
+        total_reales = self.tally.total_reales
+        total_falsos = self.tally.total_falsos
+        if total_reales > 0 and total_falsos > 0:
+            ratio = total_falsos / total_reales
+            anomalias.append(f"Ratio ruido/real: {ratio:.1f}:1  (reales={total_reales}, ruido={total_falsos})")
+
+        # Concentración: solo si la autoridad ya descifró resultados
+        if self.tally._resultados:
+            for cargo, cands in self.tally._resultados.items():
+                total = sum(cands.values())
+                if total > 0:
+                    max_votos = max(cands.values())
+                    if max_votos > total * 0.8:
+                        ganador = max(cands, key=cands.get)
+                        anomalias.append(
+                            f"Concentración en {cargo}: {ganador} con "
+                            f"{max_votos}/{total} votos ({100*max_votos/total:.0f}%)"
+                        )
+
+        return anomalias if anomalias else ["Sin anomalías detectadas."]
